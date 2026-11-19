@@ -1,0 +1,31 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.ipynb_checkpoints/
+*.zip
+
+# Generated datasets and user uploads
+data/train/*
+data/validation/*
+data/test/*
+data/uploaded/*
+data/retraining/*
+!data/train/.gitkeep
+!data/validation/.gitkeep
+!data/test/.gitkeep
+!data/uploaded/.gitkeep
+!data/retraining/.gitkeep
+
+# Generated load-test reports
+reports/locust/*.csv
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

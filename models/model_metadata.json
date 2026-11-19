@@ -1,0 +1,26 @@
+{
+  "model_name": "Taro Leaf Blight MobileNetV2",
+  "model_version": "1.0.0",
+  "dataset": "Project-AgML/taro_blight_stage_classification",
+  "input_height": 224,
+  "input_width": 224,
+  "input_channels": 3,
+  "class_names": [
+    "Early_Blight",
+    "Healthy",
+    "Late_Blight",
+    "Mid_Blight"
+  ],
+  "preprocessing": "Convert to RGB and resize with padding to 224x224. MobileNetV2 preprocessing is built into the exported model.",
+  "test_images": 2738,
+  "metrics": {
+    "test_cross_entropy_loss": 0.7406868761966696,
+    "test_accuracy": 0.6972242512783053,
+    "macro_precision": 0.662108959120406,
+    "macro_recall": 0.6574140032579661,
+    "macro_f1": 0.6471968836408492,
+    "weighted_f1": 0.7000480826028965,
+    "top_2_accuracy": 0.9258582907231556,
+    "macro_roc_auc_ovr": 0.889295149561312
+  }
+}

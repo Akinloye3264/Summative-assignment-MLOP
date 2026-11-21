@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from src.dataset_store import DatasetStore
-from src.preprocessing import IMAGE_HEIGHT, IMAGE_WIDTH, preprocess_image_file
+from src.preprocessing import IMAGE_HEIGHT, IMAGE_WIDTH, preprocess_image_bytes
 
 
 def utc_now() -> str:
@@ -58,8 +58,8 @@ class RetrainingManager:
         self._executor.shutdown(wait=True, cancel_futures=False)
 
     def start(self) -> dict:
-        image_paths = self.dataset_store.image_paths()
-        counts = {name: len(paths) for name, paths in image_paths.items()}
+        image_ids = self.dataset_store.image_ids()
+        counts = {name: len(ids) for name, ids in image_ids.items()}
         total = sum(counts.values())
         if total < self.minimum_images:
             raise RetrainingError(
@@ -103,7 +103,7 @@ class RetrainingManager:
             try:
                 self._write(job)
                 self._active_job_id = job_id
-                self._executor.submit(self._run, job_id, image_paths)
+                self._executor.submit(self._run, job_id, image_ids)
             except Exception:
                 self._release_shared_lock(job_id)
                 raise
@@ -162,12 +162,12 @@ class RetrainingManager:
         if current_id == job_id:
             self.active_lock_path.unlink(missing_ok=True)
 
-    def _run(self, job_id: str, image_paths: dict[str, list[Path]]) -> None:
+    def _run(self, job_id: str, image_ids: dict[str, list[str]]) -> None:
         job = self.get(job_id)
         job.update(status="running", started_at=utc_now())
         self._write(job)
         try:
-            metrics, model_version = self._train(job_id, image_paths)
+            metrics, model_version = self._train(job_id, image_ids)
             job.update(
                 status="completed",
                 completed_at=utc_now(),
@@ -189,7 +189,7 @@ class RetrainingManager:
             self._release_shared_lock(job_id)
 
     def _train(
-        self, job_id: str, image_paths: dict[str, list[Path]]
+        self, job_id: str, image_ids: dict[str, list[str]]
     ) -> tuple[dict, str]:
         import tensorflow as tf
 
@@ -207,22 +207,23 @@ class RetrainingManager:
             layer.trainable = False
 
         samples = [
-            (str(path), label)
+            (digest, label)
             for label, name in enumerate(self.dataset_store.class_names)
-            for path in image_paths[name]
+            for digest in image_ids[name]
         ]
-        paths, labels = zip(*samples)
+        digests, labels = zip(*samples)
 
-        def prepare(path, label):
-            def read_image(path_tensor):
-                return preprocess_image_file(path_tensor.numpy().decode("utf-8"))[0]
+        def prepare(digest, label):
+            def read_image(digest_tensor):
+                key = digest_tensor.numpy().decode("ascii")
+                return preprocess_image_bytes(self.dataset_store.image_bytes(key))[0]
 
-            image = tf.py_function(read_image, [path], Tout=tf.float32)
+            image = tf.py_function(read_image, [digest], Tout=tf.float32)
             image.set_shape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
             return image, label
 
         dataset = (
-            tf.data.Dataset.from_tensor_slices((list(paths), list(labels)))
+            tf.data.Dataset.from_tensor_slices((list(digests), list(labels)))
             .shuffle(min(len(samples), 512), seed=42)
             .map(prepare, num_parallel_calls=tf.data.AUTOTUNE)
             .batch(16)
@@ -234,7 +235,7 @@ class RetrainingManager:
             loss=tf.keras.losses.SparseCategoricalCrossentropy(),
             metrics=["accuracy"],
         )
-        history = model.fit(dataset, epochs=self.epochs, verbose=2)
+        history = model.fit(dataset, epochs=self.epochs, verbose=2, shuffle=False)
 
         temporary_model = self.promoted_model_path.with_name(
             f".{job_id}.keras"

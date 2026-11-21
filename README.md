@@ -26,7 +26,7 @@ Open the [model dashboard](http://127.0.0.1:8000/) or the [interactive API docum
 | Start a background retraining job | `POST /retrain` |
 | Poll a job for its status and training metrics | `GET /retrain/{job_id}` |
 
-Upload one batch per class using `Early_Blight`, `Healthy`, `Late_Blight`, or `Mid_Blight`. The current defaults require at least two distinct images per class and eight total. Once the dashboard shows enough images, click **Start retraining** and follow the job status. Uploads are stored in class directories under `data/uploaded/`. Job records and the promoted model are written under `data/retraining/`.
+Upload one batch per class using `Early_Blight`, `Healthy`, `Late_Blight`, or `Mid_Blight`. The current defaults require at least two distinct images per class and eight total. Uploads are stored as image bytes, labels, and SHA-256 digests in `data/uploaded/uploads.sqlite3`. Job records and the promoted model are written under `data/retraining/`.
 
 ## Training and evaluation
 
@@ -51,6 +51,19 @@ curl.exe --fail http://127.0.0.1:8080/health
 ```
 
 Open the [containerized dashboard](http://127.0.0.1:8080/) or [Swagger UI](http://127.0.0.1:8080/docs). Both use port 8080. The image includes the frontend and both model formats. The Compose volume persists uploads, retraining jobs and the promoted checkpoint across container replacements. Split upload batches that would exceed the proxy's 100 MB request limit.
+
+### Demonstrate database-backed retraining
+
+1. Rebuild using `docker compose up --build --detach --wait`. On its first startup, SQLite imports existing images from the old class folders in the Compose volume. It keeps the original files as a backup and uses SQLite for subsequent reads and writes.
+2. Open the dashboard's **Retraining** section. On a fresh deployment, upload the two photos in each `load_tests/samples/` class folder using its matching label. On an upgraded deployment, the existing images should already appear in the upload counts. Re-uploading identical images with the same label counts them as duplicates.
+3. Check the saved rows and byte counts from PowerShell:
+
+   ```powershell
+   docker compose exec -T api python -c "import sqlite3; db=sqlite3.connect('/app/data/uploaded/uploads.sqlite3'); print(db.execute('SELECT label, COUNT(*), SUM(length(content)) FROM images GROUP BY label').fetchall())"
+   ```
+
+4. Click **Start retraining**. The job snapshots the uploaded image IDs, reads their bytes from SQLite, and preprocesses them for fine-tuning. Wait for the dashboard to report that the new model is active. Confirm the new version at [`/health`](http://127.0.0.1:8080/health).
+5. Describe the job's accuracy as training accuracy. Use labelled held-out images to evaluate model quality.
 
 For a cloud demonstration, use a Linux x86-64 VM and the same Compose commands. The proxy listens on the VM's loopback interface. Forward the port to your machine with `ssh -L 8080:127.0.0.1:8080 user@vm`, then open the same dashboard URL locally. For a public submission URL, put an HTTPS gateway in front of the proxy and require authentication for upload and retraining access. Use one API replica for the retraining demo and scale up for the prediction benchmark.
 
@@ -81,7 +94,6 @@ A native Windows smoke test with one Locust user for 10 seconds completed 14 req
 
 ## Assignment status
 
-- Add database-backed upload storage for the retraining rubric. The current code uses files for images and JSON for job records.
-- Run a retraining demonstration with labelled leaf photos and evaluate the resulting model on held-out data before promoting it. An isolated TensorFlow run with eight synthetic uploads verified that the trained model could be promoted and loaded. Prediction and retraining use the same aspect-ratio-preserving preprocessing. The current retraining job records training metrics, and `GET /metrics` returns the original offline evaluation.
+- Record a retraining demonstration with labelled leaf photos. Held-out evaluation before promotion is still pending. The retraining job records training metrics, and `GET /metrics` returns the original offline evaluation.
 - Deploy to a cloud host with persistent storage and evaluate the deployed API using labelled held-out images. The Docker build and local prediction smoke test passed.
 - Add the deployed URL and camera-on YouTube demo after recording both prediction and retraining. Submit the repository ZIP on the first attempt and the [GitHub repository URL](https://github.com/Akinloye3264/Summative-assignment-MLOP) on the second.

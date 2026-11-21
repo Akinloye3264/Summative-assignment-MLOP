@@ -1,10 +1,10 @@
-"""Validated, deduplicated storage for newly labelled training images."""
+"""Validated, deduplicated SQLite storage for labelled training images."""
 
 from __future__ import annotations
 
 import hashlib
-import os
-import tempfile
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from src.preprocessing import validate_image_bytes
@@ -18,9 +18,49 @@ class DatasetStore:
     def __init__(self, root: Path, class_names: list[str]) -> None:
         self.root = root
         self.class_names = class_names
-        self.root.mkdir(parents=True, exist_ok=True)
-        for class_name in class_names:
-            (self.root / class_name).mkdir(parents=True, exist_ok=True)
+        root.mkdir(parents=True, exist_ok=True)
+        self.database_path = root / "uploads.sqlite3"
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS images (
+                    digest TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    extension TEXT NOT NULL,
+                    content BLOB NOT NULL
+                )"""
+            )
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
+                for label in self.class_names:
+                    for path in sorted((root / label).glob("*")):
+                        if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                            content = path.read_bytes()
+                            extension = validate_image_bytes(content)
+                            digest = hashlib.sha256(content).hexdigest()
+                            self._store_image(connection, label, path.name, content, extension, digest)
+                connection.execute("PRAGMA user_version = 1")
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.database_path, timeout=30)
+
+    def _store_image(
+        self, connection: sqlite3.Connection, label: str, original_name: str,
+        content: bytes, extension: str, digest: str,
+    ) -> bool:
+        existing = connection.execute(
+            "SELECT label FROM images WHERE digest = ?", (digest,)
+        ).fetchone()
+        if existing:
+            if existing[0] != label:
+                raise DatasetStoreError(
+                    f"'{original_name}' was previously uploaded with label '{existing[0]}'."
+                )
+            return False
+        connection.execute(
+            "INSERT INTO images (digest, label, extension, content) VALUES (?, ?, ?, ?)",
+            (digest, label, extension, content),
+        )
+        return True
 
     def validate_label(self, label: str) -> None:
         if label not in self.class_names:
@@ -34,54 +74,19 @@ class DatasetStore:
         if not uploads:
             raise DatasetStoreError("Upload at least one image.")
 
-        validated: list[tuple[str, bytes, str, str]] = []
-        seen_in_batch: set[str] = set()
+        validated: dict[str, tuple[str, bytes, str]] = {}
         for original_name, content in uploads:
             extension = validate_image_bytes(content)
             digest = hashlib.sha256(content).hexdigest()
-            if digest in seen_in_batch:
-                continue
-            seen_in_batch.add(digest)
-            validated.append((original_name, content, extension, digest))
+            validated.setdefault(digest, (original_name, content, extension))
 
-        class_dir = self.root / label
-        # Check all label conflicts before writing anything, so a rejected batch
-        # cannot leave a partial set of files behind.
-        for original_name, _, _, digest in validated:
-            conflicting = [
-                path
-                for other_label in self.class_names
-                if other_label != label
-                for path in (self.root / other_label).glob(f"{digest}.*")
-            ]
-            if conflicting:
-                raise DatasetStoreError(
-                    f"'{original_name}' was previously uploaded with label "
-                    f"'{conflicting[0].parent.name}'."
-                )
-
-        stored: list[str] = []
-        duplicates: list[str] = []
-        for original_name, content, extension, digest in validated:
-            existing = list(class_dir.glob(f"{digest}.*"))
-            if existing:
-                duplicates.append(existing[0].name)
-                continue
-
-            target = class_dir / f"{digest}{extension}"
-            descriptor, temporary_name = tempfile.mkstemp(
-                prefix=f".{digest}-", dir=class_dir
-            )
-            try:
-                with os.fdopen(descriptor, "wb") as temporary_file:
-                    temporary_file.write(content)
-                    temporary_file.flush()
-                    os.fsync(temporary_file.fileno())
-                os.replace(temporary_name, target)
-            except Exception:
-                Path(temporary_name).unlink(missing_ok=True)
-                raise
-            stored.append(target.name)
+        stored = []
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for digest, (name, content, extension) in validated.items():
+                if self._store_image(connection, label, name, content, extension, digest):
+                    stored.append(f"{digest}{extension}")
+            counts = self._class_counts(connection)
 
         return {
             "label": label,
@@ -89,23 +94,30 @@ class DatasetStore:
             "stored": len(stored),
             "duplicates": len(uploads) - len(stored),
             "stored_files": stored,
-            "class_counts": self.class_counts(),
-            "total_images": self.total_images(),
+            "class_counts": counts,
+            "total_images": sum(counts.values()),
         }
 
-    def image_paths(self) -> dict[str, list[Path]]:
-        extensions = {".jpg", ".jpeg", ".png", ".webp"}
-        return {
-            class_name: sorted(
-                path
-                for path in (self.root / class_name).iterdir()
-                if path.is_file() and path.suffix.lower() in extensions
-            )
-            for class_name in self.class_names
-        }
+    def image_ids(self) -> dict[str, list[str]]:
+        images: dict[str, list[str]] = {name: [] for name in self.class_names}
+        with closing(self._connect()) as connection:
+            for digest, label in connection.execute("SELECT digest, label FROM images ORDER BY digest"):
+                images[label].append(digest)
+        return images
+
+    def image_bytes(self, digest: str) -> bytes:
+        with closing(self._connect()) as connection:
+            record = connection.execute(
+                "SELECT content FROM images WHERE digest = ?", (digest,)
+            ).fetchone()
+        if record is None:
+            raise KeyError(digest)
+        return record[0]
+
+    def _class_counts(self, connection: sqlite3.Connection) -> dict[str, int]:
+        counts = dict(connection.execute("SELECT label, COUNT(*) FROM images GROUP BY label"))
+        return {name: counts.get(name, 0) for name in self.class_names}
 
     def class_counts(self) -> dict[str, int]:
-        return {name: len(paths) for name, paths in self.image_paths().items()}
-
-    def total_images(self) -> int:
-        return sum(self.class_counts().values())
+        with closing(self._connect()) as connection:
+            return self._class_counts(connection)

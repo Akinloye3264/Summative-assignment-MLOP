@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import api.main as main
+from src.dataset_store import DatasetStore
 
 
 def create_upload(color: tuple[int, int, int] = (45, 130, 55)) -> BytesIO:
@@ -25,12 +26,11 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def isolated_upload_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / "uploaded"
-    monkeypatch.setattr(main.dataset_store, "root", root)
-    for class_name in main.CLASS_NAMES:
-        (root / class_name).mkdir(parents=True)
-    return root
+def isolated_upload_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatasetStore:
+    store = DatasetStore(tmp_path / "uploaded", main.CLASS_NAMES)
+    monkeypatch.setattr(main, "dataset_store", store)
+    monkeypatch.setattr(main.retraining_manager, "dataset_store", store)
+    return store
 
 
 def test_health_and_prediction(client: TestClient) -> None:
@@ -58,7 +58,7 @@ def test_prediction_rejects_text_file(client: TestClient) -> None:
 
 
 def test_upload_and_deduplicate_labelled_images(
-    client: TestClient, isolated_upload_store: Path
+    client: TestClient, isolated_upload_store: DatasetStore
 ) -> None:
     response = client.post(
         "/datasets/upload",
@@ -90,7 +90,7 @@ def test_upload_and_deduplicate_labelled_images(
 
 
 def test_upload_rejects_invalid_label_and_image(
-    client: TestClient, isolated_upload_store: Path
+    client: TestClient, isolated_upload_store: DatasetStore
 ) -> None:
     bad_label = client.post(
         "/datasets/upload",
@@ -108,7 +108,7 @@ def test_upload_rejects_invalid_label_and_image(
 
 
 def test_retraining_rejects_an_insufficient_dataset(
-    client: TestClient, isolated_upload_store: Path
+    client: TestClient, isolated_upload_store: DatasetStore
 ) -> None:
     response = client.post("/retrain")
     assert response.status_code == 422

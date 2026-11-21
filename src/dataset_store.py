@@ -93,16 +93,19 @@ class DatasetStore:
             "total_images": self.total_images(),
         }
 
-    def class_counts(self) -> dict[str, int]:
+    def image_paths(self) -> dict[str, list[Path]]:
         extensions = {".jpg", ".jpeg", ".png", ".webp"}
         return {
-            class_name: sum(
-                1
+            class_name: sorted(
+                path
                 for path in (self.root / class_name).iterdir()
                 if path.is_file() and path.suffix.lower() in extensions
             )
             for class_name in self.class_names
         }
+
+    def class_counts(self) -> dict[str, int]:
+        return {name: len(paths) for name, paths in self.image_paths().items()}
 
     def total_images(self) -> int:
         return sum(self.class_counts().values())

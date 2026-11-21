@@ -1,0 +1,24 @@
+services:
+  api:
+    build: .
+    environment:
+      RETRAIN_MIN_IMAGES: ${RETRAIN_MIN_IMAGES:-8}
+      RETRAIN_MIN_PER_CLASS: ${RETRAIN_MIN_PER_CLASS:-2}
+      RETRAIN_EPOCHS: ${RETRAIN_EPOCHS:-3}
+      MAX_UPLOAD_FILES: ${MAX_UPLOAD_FILES:-50}
+    volumes:
+      - model-state:/app/data
+    restart: unless-stopped
+  proxy:
+    image: nginx:1.28-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+volumes:
+  model-state:

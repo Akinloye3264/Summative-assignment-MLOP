@@ -9,6 +9,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.schemas import (
     DatasetUploadResponse,
@@ -114,6 +117,16 @@ app = FastAPI(
     version=MODEL_VERSION,
     lifespan=lifespan,
 )
+
+app.mount("/assets", StaticFiles(directory=PROJECT_ROOT / "frontend"), name="assets")
+app.mount("/figures", StaticFiles(directory=PROJECT_ROOT / "reports" / "figures"), name="figures")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    return FileResponse(PROJECT_ROOT / "frontend" / "index.html")
+
+
 @app.get("/health", response_model=HealthResponse, tags=["Monitoring"])
 def health() -> HealthResponse:
     refresh_promoted_model()
@@ -147,7 +160,6 @@ def metrics() -> dict:
     tags=["Prediction"],
 )
 async def predict(file: UploadFile = File(...)) -> PredictionResponse:
-    refresh_promoted_model()
     if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -157,7 +169,8 @@ async def predict(file: UploadFile = File(...)) -> PredictionResponse:
     image_bytes = await file.read(MAX_IMAGE_BYTES + 1)
     await file.close()
     try:
-        result = predictor.predict(image_bytes)
+        await run_in_threadpool(refresh_promoted_model)
+        result = await run_in_threadpool(predictor.predict, image_bytes)
     except InvalidImageError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

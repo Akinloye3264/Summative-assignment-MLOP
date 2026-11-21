@@ -38,7 +38,13 @@ def test_background_job_persists_completed_status(tmp_path: Path) -> None:
         minimum_per_class=2,
         epochs=1,
     )
-    manager._train = lambda job_id: ({"accuracy": 0.8}, "1.0.test")  # type: ignore[method-assign]
+    def train(job_id: str, image_paths: dict[str, list[Path]]) -> tuple[dict, str]:
+        assert {name: len(paths) for name, paths in image_paths.items()} == dict.fromkeys(
+            CLASSES, 2
+        )
+        return {"accuracy": 0.8}, "1.0.test"
+
+    manager._train = train  # type: ignore[method-assign]
 
     started = manager.start()
     deadline = time.time() + 5

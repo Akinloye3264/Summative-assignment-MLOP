@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Predict taro leaf blight stages and manage model retraining.">
+  <title>Taro Leaf Blight | Model dashboard</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell header-content">
+      <a class="brand" href="/"><span class="brand-leaf" aria-hidden="true"></span>Taro Leaf Blight</a>
+      <nav aria-label="Dashboard">
+        <a href="#prediction">Prediction</a>
+        <a href="#retraining">Retraining</a>
+        <a href="#insights">Dataset insights</a>
+      </nav>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="overview" aria-labelledby="page-title">
+      <div class="intro">
+        <h1 id="page-title">Taro leaf blight<br>classifier</h1>
+        <p>Identify blight stages from a leaf photo and improve the model with newly labelled images.</p>
+        <a class="hero-action" href="#prediction">Analyze a leaf</a>
+      </div>
+    </section>
+    <dl class="health" aria-label="Model health">
+      <div><dt>Model status</dt><dd id="health-status">Checking</dd></div>
+      <div><dt>Uptime</dt><dd id="uptime">—</dd></div>
+      <div><dt>Version</dt><dd id="model-version">—</dd></div>
+    </dl>
+
+    <div class="workspace">
+      <section class="panel" id="prediction" aria-labelledby="prediction-title">
+        <h2 id="prediction-title">Predict a leaf stage</h2>
+        <form id="prediction-form">
+          <label for="prediction-file">Leaf image</label>
+          <input id="prediction-file" name="file" type="file" accept="image/jpeg,image/png,image/webp" required>
+          <p class="hint">JPEG, PNG, or WebP · up to 10 MB</p>
+          <img id="preview" alt="Selected taro leaf image" hidden>
+          <button type="submit">Run prediction</button>
+        </form>
+        <p id="prediction-status" class="feedback" role="status"></p>
+        <div id="prediction-result" class="result" hidden>
+          <h3 id="predicted-class"></h3>
+          <p id="prediction-detail"></p>
+          <dl id="probabilities" class="probabilities"></dl>
+        </div>
+      </section>
+
+      <section class="panel" id="retraining" aria-labelledby="retraining-title">
+        <h2 id="retraining-title">Retrain the model</h2>
+        <form id="upload-form">
+          <label for="upload-label">Image label</label>
+          <select id="upload-label" name="label" required>
+            <option value="">Choose a class</option>
+          </select>
+          <label for="upload-files">Labelled images</label>
+          <input id="upload-files" name="files" type="file" accept="image/jpeg,image/png,image/webp" required multiple>
+          <p class="hint">Choose images from the same class for each upload.</p>
+          <button class="secondary" id="upload-button" type="submit" disabled>Save images</button>
+        </form>
+        <p id="upload-status" class="feedback" role="status"></p>
+        <div class="training">
+          <h3>Training uploads</h3>
+          <dl id="class-counts" class="counts"></dl>
+          <p id="training-requirements" class="hint">Checking upload requirements…</p>
+          <button id="retrain-button" type="button" disabled>Start retraining</button>
+          <p id="retrain-status" class="feedback" role="status"></p>
+        </div>
+      </section>
+    </div>
+
+    <section class="insights" id="insights" aria-labelledby="insights-title">
+      <h2 id="insights-title">Dataset insights</h2>
+      <div class="insight-grid">
+        <figure class="panel">
+          <h3>Class distribution</h3>
+          <img src="/figures/class_distribution.png" alt="Bar chart of image counts across the four classes" loading="lazy">
+          <figcaption>Healthy has 8,744 images and Late Blight has 1,270. The training notebook uses class weights to account for this imbalance.</figcaption>
+        </figure>
+        <figure class="panel">
+          <h3>Visual features by class</h3>
+          <img src="/figures/feature_comparison.png" alt="Plots comparing brightness, saturation, green-pixel proportion, and edge density across the four classes" loading="lazy">
+          <figcaption>Late Blight has the lowest green-pixel proportion and highest edge density. Early Blight is brightest on average, and Mid Blight has the highest mean saturation. The distributions overlap, and photo backgrounds also affect these measurements.</figcaption>
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

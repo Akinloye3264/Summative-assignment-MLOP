@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from src.dataset_store import DatasetStore
+from src.preprocessing import IMAGE_HEIGHT, IMAGE_WIDTH, preprocess_image_file
 
 
 def utc_now() -> str:
@@ -57,7 +58,8 @@ class RetrainingManager:
         self._executor.shutdown(wait=True, cancel_futures=False)
 
     def start(self) -> dict:
-        counts = self.dataset_store.class_counts()
+        image_paths = self.dataset_store.image_paths()
+        counts = {name: len(paths) for name, paths in image_paths.items()}
         total = sum(counts.values())
         if total < self.minimum_images:
             raise RetrainingError(
@@ -101,7 +103,7 @@ class RetrainingManager:
             try:
                 self._write(job)
                 self._active_job_id = job_id
-                self._executor.submit(self._run, job_id)
+                self._executor.submit(self._run, job_id, image_paths)
             except Exception:
                 self._release_shared_lock(job_id)
                 raise
@@ -160,12 +162,12 @@ class RetrainingManager:
         if current_id == job_id:
             self.active_lock_path.unlink(missing_ok=True)
 
-    def _run(self, job_id: str) -> None:
+    def _run(self, job_id: str, image_paths: dict[str, list[Path]]) -> None:
         job = self.get(job_id)
         job.update(status="running", started_at=utc_now())
         self._write(job)
         try:
-            metrics, model_version = self._train(job_id)
+            metrics, model_version = self._train(job_id, image_paths)
             job.update(
                 status="completed",
                 completed_at=utc_now(),
@@ -186,7 +188,9 @@ class RetrainingManager:
                     self._active_job_id = None
             self._release_shared_lock(job_id)
 
-    def _train(self, job_id: str) -> tuple[dict, str]:
+    def _train(
+        self, job_id: str, image_paths: dict[str, list[Path]]
+    ) -> tuple[dict, str]:
         import tensorflow as tf
 
         if not self.training_model_path.is_file():
@@ -202,16 +206,28 @@ class RetrainingManager:
         for layer in base_model.layers[:-20]:
             layer.trainable = False
 
-        dataset = tf.keras.utils.image_dataset_from_directory(
-            self.dataset_store.root,
-            labels="inferred",
-            label_mode="int",
-            class_names=self.dataset_store.class_names,
-            image_size=(224, 224),
-            batch_size=16,
-            shuffle=True,
-            seed=42,
-        ).prefetch(tf.data.AUTOTUNE)
+        samples = [
+            (str(path), label)
+            for label, name in enumerate(self.dataset_store.class_names)
+            for path in image_paths[name]
+        ]
+        paths, labels = zip(*samples)
+
+        def prepare(path, label):
+            def read_image(path_tensor):
+                return preprocess_image_file(path_tensor.numpy().decode("utf-8"))[0]
+
+            image = tf.py_function(read_image, [path], Tout=tf.float32)
+            image.set_shape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
+            return image, label
+
+        dataset = (
+            tf.data.Dataset.from_tensor_slices((list(paths), list(labels)))
+            .shuffle(min(len(samples), 512), seed=42)
+            .map(prepare, num_parallel_calls=tf.data.AUTOTUNE)
+            .batch(16)
+            .prefetch(tf.data.AUTOTUNE)
+        )
 
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),

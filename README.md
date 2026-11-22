@@ -177,5 +177,5 @@ A native Windows smoke test with one Locust user for 10 seconds completed 14 req
 
 ## Demo and submission
 
-- **Camera-on video:** YouTube link pending.
+- **Camera-on demo:** [Watch the prediction and retraining walkthrough on YouTube](https://www.youtube.com/watch?v=sGqXkvexNL8).
 - **Evaluation:** The notebook contains the original full held-out evaluation. The [AWS evaluation report](reports/production_evaluation.csv) records the deployed model's results on a 24-image sample. `GET /metrics` returns the original offline evaluation.

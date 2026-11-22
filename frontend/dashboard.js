@@ -19,13 +19,19 @@ function message(id, text, error = false) {
 }
 
 async function request(path, options) {
-  const response = await fetch(path, options);
+  const response = await fetch(path, { ...options, redirect: "manual" });
+  if (response.type === "opaqueredirect") {
+    const error = new Error("Sign in again to continue.");
+    error.name = "SignInRequired";
+    throw error;
+  }
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = data?.detail;
     const description = Array.isArray(detail) ? detail.map((item) => item.msg).join(". ") : detail;
     throw new Error(description || "Request failed (" + response.status + ").");
   }
+  if (!data) throw new Error("The API did not return JSON.");
   return data;
 }
 
@@ -45,8 +51,11 @@ async function refreshHealth() {
     byId("health-status").textContent = health.model_loaded ? "Online" : "Starting";
     byId("uptime").textContent = formatUptime(health.uptime_seconds);
     byId("model-version").textContent = health.model_version;
-  } catch {
-    byId("health-status").textContent = "Unavailable";
+    byId("sign-in-again").hidden = true;
+  } catch (error) {
+    const signInRequired = error.name === "SignInRequired";
+    byId("health-status").textContent = signInRequired ? "Sign-in required" : "Unavailable";
+    byId("sign-in-again").hidden = !signInRequired;
     byId("uptime").textContent = "—";
     byId("model-version").textContent = "—";
   }

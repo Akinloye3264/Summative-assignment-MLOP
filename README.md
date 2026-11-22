@@ -2,7 +2,41 @@
 
 This project classifies a taro leaf image as Healthy, Early Blight, Mid Blight, or Late Blight. The classifier uses an ImageNet-pretrained MobileNetV2 feature extractor and a custom head trained on the [Project-AgML taro blight stage dataset](https://huggingface.co/datasets/Project-AgML/taro_blight_stage_classification).
 
-## Run the API locally
+## Live AWS deployment
+
+| Resource | Link | What to expect |
+| --- | --- | --- |
+| Dashboard | [Open the live dashboard](https://find-identity-generated-acm.trycloudflare.com/) | Predict a leaf stage, view model uptime and dataset insights, upload labelled images, and monitor retraining. |
+| Swagger UI | [Open the live API docs](https://find-identity-generated-acm.trycloudflare.com/docs) | Explore the FastAPI routes and run requests with **Try it out**. |
+| Model health | [Open the live health endpoint](https://find-identity-generated-acm.trycloudflare.com/health) | Check `status`, `model_loaded`, `model_version`, and `uptime_seconds` as JSON. |
+
+Open the dashboard and enter **`grader`** in the browser's username field. Use the password supplied separately. The dashboard, Swagger, and health endpoint share the same HTTPS host and login. To check health from a terminal, this command prompts for the password:
+
+```bash
+curl --fail --user grader https://find-identity-generated-acm.trycloudflare.com/health
+```
+
+The service runs on AWS EC2 and is reachable independently of the developer's computer. The HTTPS address is a Cloudflare Quick Tunnel and remains valid while its EC2 tunnel container is running. Recreating or restarting the tunnel generates a new address.
+
+### Try the live workflow
+
+1. **Predict a leaf stage.** Open **Prediction**, choose [the bundled Mid Blight sample](load_tests/sample.jpg), and select **Run prediction**. The dashboard displays the predicted class, confidence, inference time, and class probabilities. During AWS verification the baseline model classified this example as **Mid Blight** with **96.5% confidence**. The active retrained model may produce different probabilities.
+2. **Inspect the training data.** Open **Retraining**. The deployed database was populated with eight real leaf images, two per class. On a fresh instance, choose the matching class and use **Save images** for each folder under [`load_tests/samples/`](load_tests/samples/). The API validates image format and deduplicates by SHA-256. It rejects the same image under conflicting labels.
+3. **Trigger retraining.** Select **Start retraining**. The API starts a background job and the dashboard polls for its status. The job reads the saved image bytes from SQLite, applies the same image preprocessing as prediction, and fine-tunes the repository's `.keras` checkpoint.
+4. **Verify activation.** After the job completes, check the new version in the dashboard or the live health endpoint. The verified AWS run reported **87.5% training accuracy** after three epochs on eight images. Use the held-out split to measure generalization.
+
+## Local setup
+
+Clone the repository and open its root:
+
+```bash
+git clone https://github.com/Akinloye3264/Summative-assignment-MLOP.git
+cd Summative-assignment-MLOP
+```
+
+Docker Compose runs the full dashboard and API on port `8080`. Native Python is also available for development and testing.
+
+### Run with native Python
 
 Use Python 3.12 (64-bit). On Windows PowerShell, from the repository root:
 
@@ -20,6 +54,8 @@ Open the [model dashboard](http://127.0.0.1:8000/) or the [interactive API docum
 | Action | Endpoint |
 | --- | --- |
 | Read process uptime and model version | `GET /health` |
+| Inspect active model metadata | `GET /model/info` |
+| Read saved offline evaluation metrics | `GET /metrics` |
 | Predict one JPEG, PNG, or WebP | `POST /predict` with multipart field `file` |
 | Upload labelled images | `POST /datasets/upload` with `label` and repeated `files` fields |
 | Check labelled upload totals | `GET /datasets/summary` |
@@ -38,7 +74,7 @@ The saved evaluation used 2,738 test images. It reports 69.72% accuracy, 0.7407 
 
 The [class distribution](reports/figures/class_distribution.png) shows that Healthy images substantially outnumber Late Blight images. The [feature comparison](reports/figures/feature_comparison.png) shows that Late Blight images have the lowest green-pixel proportion and highest edge density. Early Blight has the highest mean brightness, and Mid Blight has the highest mean saturation. The distributions overlap, and backgrounds can influence all four measurements.
 
-## Docker and deployment
+## Run locally with Docker Compose
 
 On Windows, update to a supported Windows 11 release. Docker Desktop currently lists build 22631 as the minimum on Windows 11 and WSL 2.1.5 as the minimum WSL version. Use Windows Update and restart, then run `wsl --install --no-distribution` in administrator PowerShell if WSL 2 is missing, followed by `wsl --update`. Restart if prompted. Check `wsl --version`, then [install Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) and select the WSL 2 backend. On a Linux VM, use [Docker Engine and the Compose plugin](https://docs.docker.com/compose/install/).
 
@@ -51,6 +87,17 @@ curl.exe --fail http://127.0.0.1:8080/health
 ```
 
 Open the [containerized dashboard](http://127.0.0.1:8080/) or [Swagger UI](http://127.0.0.1:8080/docs). Both use port 8080. The image includes the frontend and both model formats. The Compose volume persists uploads, retraining jobs and the promoted checkpoint across container replacements. Split upload batches that would exceed the proxy's 100 MB request limit.
+
+The default settings support the demo. Copy [`.env.example`](.env.example) to `.env` if you need to change them. Compose accepts `APP_PORT` for the host port and the following training settings:
+
+| Setting | Default |
+| --- | ---: |
+| `RETRAIN_MIN_IMAGES` | 8 |
+| `RETRAIN_MIN_PER_CLASS` | 2 |
+| `RETRAIN_EPOCHS` | 3 |
+| `MAX_UPLOAD_FILES` | 50 |
+
+Use `docker compose logs -f api` to watch the API and training logs. Use `docker compose down` to stop the local stack and retain its volume.
 
 ### Demonstrate database-backed retraining
 
@@ -65,7 +112,23 @@ Open the [containerized dashboard](http://127.0.0.1:8080/) or [Swagger UI](http:
 4. Click **Start retraining**. The job snapshots the uploaded image IDs, reads their bytes from SQLite, and preprocesses them for fine-tuning. Wait for the dashboard to report that the new model is active. Confirm the new version at [`/health`](http://127.0.0.1:8080/health).
 5. Describe the job's accuracy as training accuracy. Use labelled held-out images to evaluate model quality.
 
-For a cloud demonstration, use a Linux x86-64 VM and the same Compose commands. The proxy listens on the VM's loopback interface. Forward the port to your machine with `ssh -L 8080:127.0.0.1:8080 user@vm`, then open the same dashboard URL locally. For a public submission URL, put an HTTPS gateway in front of the proxy and require authentication for upload and retraining access. Use one API replica for the retraining demo and scale up for the prediction benchmark.
+## AWS deployment setup
+
+The cloud deployment uses one x86-64 Ubuntu EC2 instance and one API replica. FastAPI serves the dashboard and API together. Local Nginx routes requests to FastAPI, and a password-protected Nginx gateway sits in front of the stack for the Cloudflare HTTPS tunnel. The Compose volume stores the SQLite database, job records, and promoted checkpoint on the EC2 disk.
+
+1. Launch an Ubuntu x86-64 EC2 instance with enough memory for TensorFlow. The deployment uses a `t3.small` with 2 GiB of RAM. Enable SSH for your IP and connect with your EC2 key.
+2. Install Docker Engine and Compose on Ubuntu. [Docker installation guide](https://docs.docker.com/engine/install/ubuntu/)
+3. Clone the repository on the instance and build the stack:
+
+   ```bash
+   git clone https://github.com/Akinloye3264/Summative-assignment-MLOP.git
+   cd Summative-assignment-MLOP
+   sudo docker compose up --build --detach --wait --wait-timeout 600
+   curl --fail http://127.0.0.1:8080/health
+   ```
+
+4. Keep the Compose proxy on loopback. Verify the dashboard privately from your PC by forwarding an unused local port, for example `ssh -N -L 8081:127.0.0.1:8080 -i PATH_TO_KEY ubuntu@EC2_HOST`, and opening [localhost:8081](http://127.0.0.1:8081/).
+5. For HTTPS access, configure a loopback gateway with HTTP Basic authentication and password hashes stored outside the repository. Forward the gateway to `127.0.0.1:8080` and point Cloudflare Tunnel at the gateway. Verify that unauthenticated requests get HTTP 401, then sign in and check the dashboard, Swagger, and health. The current link is listed at the top of this README.
 
 ## Locust prediction benchmark
 
@@ -92,8 +155,8 @@ Two replicas increased throughput by about 25% and reduced median latency by abo
 
 A native Windows smoke test with one Locust user for 10 seconds completed 14 requests with zero failures, 180 ms median response time and 360 ms p95. To reproduce it, use `--host http://127.0.0.1:8000` and `-u 1 -r 1 -t 10s` with a separate report name.
 
-## Assignment status
+## Demo and submission
 
-- Record a retraining demonstration with labelled leaf photos. Held-out evaluation before promotion is still pending. The retraining job records training metrics, and `GET /metrics` returns the original offline evaluation.
-- Deploy to a cloud host with persistent storage and evaluate the deployed API using labelled held-out images. The Docker build and local prediction smoke test passed.
-- Add the deployed URL and camera-on YouTube demo after recording both prediction and retraining. Submit the repository ZIP on the first attempt and the [GitHub repository URL](https://github.com/Akinloye3264/Summative-assignment-MLOP) on the second.
+- **Camera-on video:** YouTube link pending. Show a labelled prediction, an upload or the SQLite records, retraining progress, the activated model version, and the two Locust reports.
+- **Evaluation:** The notebook contains the original held-out evaluation. The production prediction smoke test and AWS retraining workflow passed. A full held-out comparison of the original and retrained checkpoints is pending. `GET /metrics` returns the original offline evaluation.
+- **Submission:** Submit the repository ZIP on the first attempt and the [GitHub repository URL](https://github.com/Akinloye3264/Summative-assignment-MLOP) on the second. Share the grader password privately.

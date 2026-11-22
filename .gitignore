@@ -15,11 +15,13 @@ data/validation/*
 data/test/*
 data/uploaded/*
 data/retraining/*
-!data/train/.gitkeep
-!data/validation/.gitkeep
-!data/test/.gitkeep
-!data/uploaded/.gitkeep
-!data/retraining/.gitkeep
+# Include only the curated, labelled JPEG examples in each split.
+!data/train/*/
+!data/test/*/
+data/train/*/*
+data/test/*/*
+!data/train/*/*_sample.jpg
+!data/test/*/*_sample.jpg
 
 # Generated load-test reports
 reports/locust/*.csv

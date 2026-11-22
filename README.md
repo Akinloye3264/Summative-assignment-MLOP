@@ -10,7 +10,9 @@ This project classifies a taro leaf image as Healthy, Early Blight, Mid Blight, 
 | Swagger UI | [Open the live API docs](https://find-identity-generated-acm.trycloudflare.com/docs) | Explore the FastAPI routes and run requests with **Try it out**. |
 | Model health | [Open the live health endpoint](https://find-identity-generated-acm.trycloudflare.com/health) | Check `status`, `model_loaded`, `model_version`, and `uptime_seconds` as JSON. |
 
-Open the dashboard and enter **`grader`** in the browser's username field. Use the password supplied separately. The dashboard, Swagger, and health endpoint share the same HTTPS host and login. To check health from a terminal, this command prompts for the password:
+**Grader username:** `grader`. The password will be shared privately with the submission.
+
+Enter these credentials in the browser prompt. The dashboard, Swagger, and health endpoint share the same login. To check health from a terminal, this command prompts for the password:
 
 ```bash
 curl --fail --user grader https://find-identity-generated-acm.trycloudflare.com/health
@@ -70,7 +72,25 @@ The [training notebook](notebook/taro_leaf_blight_classifier.ipynb) was run in G
 
 Use `requirements-training.txt` in a separate training environment. A local notebook run also needs Jupyter and a replacement for the Colab Drive mount and absolute output paths. The original dataset download is about 1.27 GB. The notebook also writes `taro_model_artifacts.zip` under its Drive project folder, which may contain a recoverable copy of the training outputs.
 
+The repository includes labelled examples in [`data/train/`](data/train/) and [`data/test/`](data/test/), with two images per class in each split. The [data README](data/README.md) documents their origin and how to obtain the full dataset.
+
 The saved evaluation used 2,738 test images. It reports 69.72% accuracy, 0.7407 cross-entropy loss, 66.21% macro precision, 65.74% macro recall, 64.72% macro F1, and 92.59% top-2 accuracy. Mid Blight had 47.23% recall. See the [evaluation metrics](models/metrics.json) and [per-class report](models/classification_report.csv).
+
+### Deployed model evaluation
+
+On November 22, 2026, the AWS API classified **16 of 24** held-out images correctly using active model version `1.0.1795358432323318109`. The sample used six images per class selected with seed 42 from dataset-viewer row blocks intersected with the saved notebook test split. Selection happened before inference. The requests used the live `POST /predict` endpoint. See the [per-image production results](reports/production_evaluation.csv) for dataset row IDs, labels, predictions, and inference times.
+
+| Metric | AWS sample |
+| --- | ---: |
+| Accuracy | 66.67% |
+| Macro precision | 75.11% |
+| Macro recall | 66.67% |
+| Macro F1 | 67.89% |
+| Cross-entropy loss | 0.8421 |
+
+This is a small, class-balanced production check. To measure the effect of retraining, evaluate both checkpoints on the same held-out images. The notebook's 69.72% comes from the full test split.
+
+The notebook creates the original model. The API uses [`src/model.py`](src/model.py) to load and compile the fine-tuning checkpoint and [`src/retraining.py`](src/retraining.py) to run the background job.
 
 The [class distribution](reports/figures/class_distribution.png) shows that Healthy images substantially outnumber Late Blight images. The [feature comparison](reports/figures/feature_comparison.png) shows that Late Blight images have the lowest green-pixel proportion and highest edge density. Early Blight has the highest mean brightness, and Mid Blight has the highest mean saturation. The distributions overlap, and backgrounds can influence all four measurements.
 
@@ -157,6 +177,5 @@ A native Windows smoke test with one Locust user for 10 seconds completed 14 req
 
 ## Demo and submission
 
-- **Camera-on video:** YouTube link pending. Show a labelled prediction, an upload or the SQLite records, retraining progress, the activated model version, and the two Locust reports.
-- **Evaluation:** The notebook contains the original held-out evaluation. The production prediction smoke test and AWS retraining workflow passed. A full held-out comparison of the original and retrained checkpoints is pending. `GET /metrics` returns the original offline evaluation.
-- **Submission:** Submit the repository ZIP on the first attempt and the [GitHub repository URL](https://github.com/Akinloye3264/Summative-assignment-MLOP) on the second. Share the grader password privately.
+- **Camera-on video:** YouTube link pending.
+- **Evaluation:** The notebook contains the original full held-out evaluation. The [AWS evaluation report](reports/production_evaluation.csv) records the deployed model's results on a 24-image sample. `GET /metrics` returns the original offline evaluation.

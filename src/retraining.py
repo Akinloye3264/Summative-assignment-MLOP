@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from src.dataset_store import DatasetStore
+from src.model import prepare_fine_tuning_model
 from src.preprocessing import IMAGE_HEIGHT, IMAGE_WIDTH, preprocess_image_bytes
 
 
@@ -193,18 +194,7 @@ class RetrainingManager:
     ) -> tuple[dict, str]:
         import tensorflow as tf
 
-        if not self.training_model_path.is_file():
-            raise FileNotFoundError(
-                f"Training model not found: {self.training_model_path}"
-            )
-
-        model = tf.keras.models.load_model(
-            str(self.training_model_path), compile=False
-        )
-        base_model = model.get_layer("mobilenetv2_1.00_224")
-        base_model.trainable = True
-        for layer in base_model.layers[:-20]:
-            layer.trainable = False
+        model = prepare_fine_tuning_model(self.training_model_path)
 
         samples = [
             (digest, label)
@@ -230,11 +220,6 @@ class RetrainingManager:
             .prefetch(tf.data.AUTOTUNE)
         )
 
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-            loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-            metrics=["accuracy"],
-        )
         history = model.fit(dataset, epochs=self.epochs, verbose=2, shuffle=False)
 
         temporary_model = self.promoted_model_path.with_name(

@@ -1,5 +1,7 @@
 # Taro Leaf Blight Classification
 
+**Grader login:** Username `grader` ? Password `txTAdpm_A1LWb4JHerle96d5dMrnJLkr`
+
 This project classifies a taro leaf image as Healthy, Early Blight, Mid Blight, or Late Blight. The classifier uses an ImageNet-pretrained MobileNetV2 feature extractor and a custom head trained on the [Project-AgML taro blight stage dataset](https://huggingface.co/datasets/Project-AgML/taro_blight_stage_classification).
 
 ## Live AWS deployment
@@ -9,8 +11,6 @@ This project classifies a taro leaf image as Healthy, Early Blight, Mid Blight, 
 | Dashboard | [Open the live dashboard](https://find-identity-generated-acm.trycloudflare.com/) | Predict a leaf stage, view model uptime and dataset insights, upload labelled images, and monitor retraining. |
 | Swagger UI | [Open the live API docs](https://find-identity-generated-acm.trycloudflare.com/docs) | Explore the FastAPI routes and run requests with **Try it out**. |
 | Model health | [Open the live health endpoint](https://find-identity-generated-acm.trycloudflare.com/health) | Check `status`, `model_loaded`, `model_version`, and `uptime_seconds` as JSON. |
-
-**Grader username:** `grader`. The password will be shared privately with the submission.
 
 Enter these credentials in the browser prompt. The dashboard, Swagger, and health endpoint share the same login. To check health from a terminal, this command prompts for the password:
 
